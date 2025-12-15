@@ -1,0 +1,409 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>The Wheel of Fate</title>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <style>
+        :root {
+            --primary: #FFD700; /* Gold */
+            --bg: #2E0854;      /* Deep Purple */
+            --wheel-border: #5A2D76;
+            --text-color: #ffffff;
+            --danger: #ff004c;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg);
+            background-image: radial-gradient(circle at center, #3a0a6e 0%, #1a0530 100%);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* UI Elements */
+        .game-header { text-align: center; margin-bottom: 20px; }
+        .stats-box {
+            background: rgba(0, 0, 0, 0.5);
+            padding: 15px 30px;
+            border-radius: 50px;
+            border: 2px solid var(--primary);
+            font-size: 1.5rem;
+            margin-bottom: 20px;
+            box-shadow: 0 0 15px rgba(255, 215, 0, 0.3);
+            display: flex;
+            gap: 20px;
+        }
+
+        /* The Wheel Container */
+        .wheel-container {
+            position: relative;
+            width: 350px;
+            height: 350px;
+            margin-bottom: 30px;
+        }
+
+        canvas {
+            width: 100%;
+            height: 100%;
+            filter: drop-shadow(0 0 10px rgba(0,0,0,0.5));
+            transform: rotate(-90deg); /* Start drawing from top */
+        }
+
+        /* The Pointer (The "Clicker") */
+        .pointer {
+            position: absolute;
+            top: 50%;
+            right: -20px;
+            transform: translateY(-50%);
+            width: 0; 
+            height: 0; 
+            border-top: 20px solid transparent;
+            border-bottom: 20px solid transparent;
+            border-right: 40px solid white;
+            z-index: 10;
+            filter: drop-shadow(0 2px 2px rgba(0,0,0,0.5));
+        }
+
+        /* Controls */
+        .btn-spin {
+            background: linear-gradient(to bottom, #FFD700, #ffae00);
+            border: none;
+            padding: 20px 60px;
+            font-size: 2rem;
+            font-weight: bold;
+            color: #2E0854;
+            border-radius: 100px;
+            cursor: pointer;
+            box-shadow: 0 5px 0 #b37400, 0 10px 20px rgba(0,0,0,0.4);
+            transition: all 0.1s;
+            text-transform: uppercase;
+        }
+
+        .btn-spin:active {
+            transform: translateY(5px);
+            box-shadow: 0 0 0 #b37400, 0 0 5px rgba(0,0,0,0.4);
+        }
+
+        .btn-spin:disabled {
+            background: #555;
+            color: #888;
+            box-shadow: none;
+            cursor: not-allowed;
+            transform: translateY(5px);
+        }
+
+        .round-info {
+            margin-top: 15px;
+            color: #aaa;
+            font-style: italic;
+        }
+
+        /* Modal styling */
+        .modal {
+            display: none;
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.9);
+            z-index: 100;
+            justify-content: center; align-items: center; text-align: center;
+        }
+        .modal-content {
+            background: #fff; color: #333; padding: 40px; border-radius: 20px; max-width: 400px;
+        }
+        .modal h2 { margin-top: 0; color: var(--bg); font-size: 2.5rem;}
+        .result-val { font-size: 4rem; font-weight: bold; display: block; margin: 10px 0; }
+        .btn-next {
+            background: var(--bg); color: white; border: none; padding: 15px 30px;
+            font-size: 1.2rem; border-radius: 10px; cursor: pointer;
+        }
+
+        @media (max-width: 500px) {
+            .wheel-container { width: 300px; height: 300px; }
+            .stats-box { flex-direction: column; gap: 5px; text-align: center; padding: 15px; border-radius: 15px;}
+        }
+    </style>
+</head>
+<body>
+
+    <header class="game-header">
+        <h1>WHEEL OF FATE</h1>
+    </header>
+
+    <div class="stats-box">
+        <div>SCORE: <span id="scoreDisplay" style="color: var(--primary);">1000</span></div>
+        <div>ROUND: <span id="roundDisplay">1</span></div>
+    </div>
+
+    <div class="wheel-container">
+        <div class="pointer"></div>
+        <canvas id="wheelCanvas" width="500" height="500"></canvas>
+    </div>
+
+    <button id="spinBtn" class="btn-spin">SPIN!</button>
+    <div class="round-info" id="roundDesc">Round 1: 50% chance to DOUBLE!</div>
+
+    <div id="resultModal" class="modal">
+        <div class="modal-content">
+            <h2 id="modalTitle">RESULT</h2>
+            <span class="result-val" id="modalValue">x2</span>
+            <p id="modalMsg">Score Doubled!</p>
+            <button class="btn-next" onclick="nextRound()">NEXT ROUND</button>
+        </div>
+    </div>
+
+    <script>
+        // --- Game Config ---
+        let currentScore = 1000;
+        let currentRound = 1;
+        let isSpinning = false;
+
+        // Canvas Setup
+        const canvas = document.getElementById('wheelCanvas');
+        const ctx = canvas.getContext('2d');
+        const spinBtn = document.getElementById('spinBtn');
+        const cw = canvas.width;
+        const ch = canvas.height;
+        const cx = cw / 2;
+        const cy = ch / 2;
+        const radius = cw / 2 - 10; // Padding
+
+        // Wheel State
+        let currentRotation = 0; // In radians
+        let segments = [];
+
+        // Audio (Optional - ensure files exist or remove logic)
+        const soundSpin = new Audio('./sounds/spin.mp3'); 
+        const soundWin = new Audio('./sounds/win.mp3');
+        const soundLose = new Audio('./sounds/drop.mp3');
+        // Simple error handling if sounds don't exist
+        [soundSpin, soundWin, soundLose].forEach(s => s.addEventListener('error', () => {}));
+
+        // --- Round Configurations ---
+        // We define the specific slices for each round here.
+        // color: Hex code
+        // label: Text on wheel
+        // value: Multiplier (0 = bankrupt, 2 = double, etc)
+        
+        function getRoundConfig(round) {
+            if (round === 1) {
+                // ROUND 1: 50/50 Split
+                return [
+                    { label: "DOUBLE", value: 2, color: "#2ecc71" }, // Green
+                    { label: "ZERO", value: 0, color: "#e74c3c" }    // Red
+                ];
+            } else if (round === 2) {
+                // ROUND 2: Add Triple, Reduce Double
+                // Now 3 slices: 33% chance each
+                return [
+                    { label: "TRIPLE", value: 3, color: "#FFD700" }, // Gold
+                    { label: "ZERO", value: 0, color: "#e74c3c" },   // Red
+                    { label: "DOUBLE", value: 2, color: "#2ecc71" }  // Green
+                ];
+            } else if (round === 3) {
+                // ROUND 3: 4 slices. 25% chance each.
+                return [
+                    { label: "TRIPLE", value: 3, color: "#FFD700" },
+                    { label: "ZERO", value: 0, color: "#e74c3c" },
+                    { label: "SAFE", value: 1, color: "#3498db" },   // Blue (Keep score)
+                    { label: "DOUBLE", value: 2, color: "#2ecc71" }
+                ];
+            } else {
+                // ROUND 4+: Chaos. More Zeros.
+                return [
+                    { label: "TRIPLE", value: 3, color: "#FFD700" },
+                    { label: "ZERO", value: 0, color: "#e74c3c" },
+                    { label: "ZERO", value: 0, color: "#e74c3c" },
+                    { label: "DOUBLE", value: 2, color: "#2ecc71" },
+                    { label: "SAFE", value: 1, color: "#3498db" }
+                ];
+            }
+        }
+
+        // --- Drawing Logic ---
+
+        function drawWheel() {
+            const arcSize = (2 * Math.PI) / segments.length;
+
+            ctx.clearRect(0, 0, cw, ch);
+            ctx.save();
+            ctx.translate(cx, cy);
+            ctx.rotate(currentRotation);
+
+            segments.forEach((seg, i) => {
+                const angle = i * arcSize;
+
+                // 1. Draw Slice
+                ctx.beginPath();
+                ctx.moveTo(0, 0);
+                ctx.arc(0, 0, radius, angle, angle + arcSize);
+                ctx.fillStyle = seg.color;
+                ctx.fill();
+                ctx.strokeStyle = "#fff";
+                ctx.lineWidth = 4;
+                ctx.stroke();
+
+                // 2. Draw Text
+                ctx.save();
+                ctx.rotate(angle + arcSize / 2);
+                ctx.textAlign = "right";
+                ctx.fillStyle = "#fff";
+                ctx.font = "bold 30px Arial";
+                ctx.shadowColor = "rgba(0,0,0,0.8)";
+                ctx.shadowBlur = 4;
+                ctx.fillText(seg.label, radius - 30, 10);
+                ctx.restore();
+            });
+
+            // Center Pin
+            ctx.restore();
+            ctx.beginPath();
+            ctx.arc(cx, cy, 20, 0, 2 * Math.PI);
+            ctx.fillStyle = "white";
+            ctx.fill();
+            ctx.stroke();
+        }
+
+        // --- Game Logic ---
+
+        function initRound() {
+            segments = getRoundConfig(currentRound);
+            document.getElementById('roundDisplay').innerText = currentRound;
+            
+            // Update Round Description text
+            let desc = "";
+            if(currentRound === 1) desc = "50% chance to DOUBLE, 50% chance to lose it all.";
+            else if(currentRound === 2) desc = "Added TRIPLE, but reduced Double chance!";
+            else desc = "Good luck. It gets harder now.";
+            document.getElementById('roundDesc').innerText = desc;
+
+            drawWheel();
+        }
+
+        function spinWheel() {
+            if (isSpinning) return;
+            if (currentScore === 0) {
+                alert("You're bankrupt! Resetting game.");
+                currentScore = 1000;
+                currentRound = 1;
+                updateUI();
+                initRound();
+                return;
+            }
+
+            isSpinning = true;
+            spinBtn.disabled = true;
+            
+            // Play Sound
+            soundSpin.currentTime = 0;
+            soundSpin.play().catch(e => {});
+
+            // Animation Physics
+            let speed = 0.5 + Math.random() * 0.3; // Initial burst
+            let friction = 0.985; // How fast it slows down (closer to 1 = longer spin)
+            
+            function animate() {
+                speed *= friction; // Apply friction
+                currentRotation += speed;
+                
+                // Draw updated frame
+                drawWheel();
+
+                if (speed > 0.002) {
+                    requestAnimationFrame(animate);
+                } else {
+                    stopSpin();
+                }
+            }
+            animate();
+        }
+
+        function stopSpin() {
+            isSpinning = false;
+            spinBtn.disabled = false;
+            soundSpin.pause();
+
+            // Calculate Result
+            // 1. Normalize rotation to 0-2PI
+            const actualRotation = currentRotation % (2 * Math.PI);
+            
+            // 2. The pointer is at 0 degrees (Right side) in CSS, 
+            // but canvas draws from 0 (Right). 
+            // To find the slice under the pointer, we must invert the rotation.
+            const pointerAngle = (2 * Math.PI) - actualRotation;
+            
+            // 3. Find index
+            const arcSize = (2 * Math.PI) / segments.length;
+            const winningIndex = Math.floor(pointerAngle / arcSize) % segments.length;
+            
+            const result = segments[winningIndex];
+            processResult(result);
+        }
+
+        function processResult(result) {
+            const oldScore = currentScore;
+            currentScore = currentScore * result.value;
+            
+            // Update Modal UI
+            document.getElementById('resultModal').style.display = 'flex';
+            document.getElementById('modalValue').innerText = result.label;
+            document.getElementById('modalValue').style.color = result.color;
+
+            if (result.value === 0) {
+                // LOSS
+                document.getElementById('modalMsg').innerText = "Oh no! Bankrupt!";
+                document.getElementById('modalTitle').innerText = "DISASTER";
+                soundLose.play().catch(e => {});
+            } else if (result.value > 1) {
+                // WIN
+                document.getElementById('modalMsg').innerText = `Score x${result.value}!`;
+                document.getElementById('modalTitle').innerText = "WINNER";
+                soundWin.play().catch(e => {});
+                
+                // Confetti
+                if (typeof confetti === 'function') {
+                    confetti({ particleCount: 150, spread: 70, origin: { y: 0.6 } });
+                }
+            } else {
+                // SAFE
+                document.getElementById('modalMsg').innerText = "Safe... but no gain.";
+                document.getElementById('modalTitle').innerText = "SAFE";
+            }
+            
+            updateUI();
+        }
+
+        function nextRound() {
+            document.getElementById('resultModal').style.display = 'none';
+            if (currentScore > 0) {
+                currentRound++;
+                initRound();
+            } else {
+                // If 0, maybe offer restart?
+                if(confirm("Game Over! Restart?")) {
+                    currentScore = 1000;
+                    currentRound = 1;
+                    initRound();
+                    updateUI();
+                }
+            }
+        }
+
+        function updateUI() {
+            document.getElementById('scoreDisplay').innerText = currentScore.toLocaleString();
+            document.getElementById('roundDisplay').innerText = currentRound;
+        }
+
+        // Start
+        spinBtn.addEventListener('click', spinWheel);
+        initRound();
+
+    </script>
+</body>
+</html>
